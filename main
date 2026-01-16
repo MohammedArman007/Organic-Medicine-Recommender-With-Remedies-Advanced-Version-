@@ -1,0 +1,116 @@
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import train_test_split
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Embedding, LSTM, Dense, Dropout
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+
+# STEP 3: Load Dataset from path
+# Paste your file path here (Google Drive mounted or direct path)
+file_path = "/content/Organic_Home_Remedy_Dataset.xlsx"  # CHANGE THIS LINE to your path
+
+# Load the Excel file
+df = pd.read_excel(file_path)
+
+# STEP 4: Preprocessing
+df['input_text'] = df['Symptoms'] + " " + df['Age Group'] + " " + df['Gender']
+
+# Encode the remedies
+tokenizer = Tokenizer(num_words=5000, oov_token="<OOV>")
+tokenizer.fit_on_texts(df['input_text'])
+input_sequences = tokenizer.texts_to_sequences(df['input_text'])
+padded_inputs = pad_sequences(input_sequences, maxlen=10, padding='post')
+
+# Encode remedy output labels
+label_encoder = LabelEncoder()
+df['remedy_encoded'] = label_encoder.fit_transform(df['Organic Remedy'])
+
+# Labels
+y = df['remedy_encoded'].values
+
+# STEP 5: Train/Test Split
+X_train, X_test, y_train, y_test = train_test_split(padded_inputs, y, test_size=0.2, random_state=42)
+
+# STEP 6: Build Deep Learning Model
+model = Sequential()
+model.add(Embedding(input_dim=5000, output_dim=64, input_length=10))
+model.add(LSTM(64))
+model.add(Dropout(0.3))
+model.add(Dense(64, activation='relu'))
+model.add(Dense(len(label_encoder.classes_), activation='softmax'))
+
+model.compile(loss='sparse_categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+model.summary()
+
+# STEP 7: Train the Model
+model.fit(X_train, y_train, epochs=5, validation_data=(X_test, y_test))
+
+# STEP 8: Recommendation system
+def recommend_remedy(symptom, age_group, gender):
+    user_input = symptom + " " + age_group + " " + gender
+    sequence = tokenizer.texts_to_sequences([user_input])
+    padded = pad_sequences(sequence, maxlen=10, padding='post')
+    prediction = model.predict(padded)
+    class_index = np.argmax(prediction)
+    remedy = label_encoder.inverse_transform([class_index])[0]
+    print("\nRecommended Organic Remedies:\n")
+    print(remedy)
+
+    # STEP 9: Interactive input form using widgets
+import ipywidgets as widgets
+from IPython.display import display, clear_output
+
+# Define dropdown and input widgets
+symptom_input = widgets.Dropdown(
+    options=sorted(df['Symptoms'].unique()),
+    description='Symptom:',
+    style={'description_width': 'initial'},
+    layout=widgets.Layout(width='50%')
+)
+
+age_input = widgets.Dropdown(
+    options=sorted(df['Age Group'].unique()),
+    description='Age Group:',
+    style={'description_width': 'initial'},
+    layout=widgets.Layout(width='50%')
+)
+
+gender_input = widgets.Dropdown(
+    options=sorted(df['Gender'].unique()),
+    description='Gender:',
+    style={'description_width': 'initial'},
+    layout=widgets.Layout(width='50%')
+)
+
+submit_button = widgets.Button(
+    description="Get Recommendations",
+    button_style='success',
+    layout=widgets.Layout(width='30%')
+)
+
+output = widgets.Output()
+
+# Callback function
+def on_submit_clicked(b):
+    with output:
+        clear_output()
+        user_symptom = symptom_input.value
+        user_age = age_input.value
+        user_gender = gender_input.value
+
+        user_input = user_symptom + " " + user_age + " " + user_gender
+        sequence = tokenizer.texts_to_sequences([user_input])
+        padded = pad_sequences(sequence, maxlen=10, padding='post')
+        prediction = model.predict(padded)
+        class_index = np.argmax(prediction)
+        remedy = label_encoder.inverse_transform([class_index])[0]
+
+        print("\nRecommended Organic Remedies:\n")
+        print(remedy)
+
+submit_button.on_click(on_submit_clicked)
+
+# Display the widgets
+display(widgets.VBox([symptom_input, age_input, gender_input, submit_button, output]))
